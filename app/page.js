@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [orderType, setOrderType] = useState("all");
   const [location, setLocation] = useState("all");
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState("log"); // log | month | date
 
   useEffect(() => {
     fetch("/api/sheet-data")
@@ -87,6 +88,7 @@ export default function Dashboard() {
       (sum, r) => sum + toNumber(r["CUTTING QTY"]),
       0
     );
+    const pendingQty = planQty - cuttingQty;
     const pct = filtered
       .map((r) => toNumber(r["QTY CUT IN %"]))
       .filter((n) => n > 0);
@@ -97,6 +99,7 @@ export default function Dashboard() {
       poCount: filtered.length,
       planQty,
       cuttingQty,
+      pendingQty,
       avgPct,
     };
   }, [filtered]);
@@ -130,6 +133,26 @@ export default function Dashboard() {
     });
     return Object.values(map);
   }, [filtered]);
+
+  // Groups rows by a given column and sums plan/cutting/pending qty per group
+  function summarizeBy(key) {
+    const map = {};
+    filtered.forEach((r) => {
+      const k = r[key] || "—";
+      if (!map[k]) {
+        map[k] = { key: k, rows: 0, planQty: 0, cuttingQty: 0 };
+      }
+      map[k].rows += 1;
+      map[k].planQty += toNumber(r["PLAN QTY"]);
+      map[k].cuttingQty += toNumber(r["CUTTING QTY"]);
+    });
+    return Object.values(map)
+      .map((g) => ({ ...g, pendingQty: g.planQty - g.cuttingQty }))
+      .sort((a, b) => (a.key > b.key ? 1 : -1));
+  }
+
+  const monthSummary = useMemo(() => summarizeBy("MONTH"), [filtered]);
+  const dateSummary = useMemo(() => summarizeBy("CUTTING DATE"), [filtered]);
 
   const columns = rows.length ? Object.keys(rows[0]) : [];
 
@@ -172,6 +195,12 @@ export default function Dashboard() {
               <p className="label">Total cutting qty</p>
               <p className="value">
                 {totals.cuttingQty.toLocaleString("en-IN")}
+              </p>
+            </div>
+            <div className="card pending">
+              <p className="label">Pending qty</p>
+              <p className="value">
+                {totals.pendingQty.toLocaleString("en-IN")}
               </p>
             </div>
             <div className="card accent">
@@ -233,7 +262,27 @@ export default function Dashboard() {
           )}
 
           <div className="panel">
-            <h2>Order log</h2>
+            <div className="view-tabs">
+              <button
+                className={viewMode === "log" ? "active" : ""}
+                onClick={() => setViewMode("log")}
+              >
+                Order log
+              </button>
+              <button
+                className={viewMode === "month" ? "active" : ""}
+                onClick={() => setViewMode("month")}
+              >
+                Month-wise pending
+              </button>
+              <button
+                className={viewMode === "date" ? "active" : ""}
+                onClick={() => setViewMode("date")}
+              >
+                Date-wise pending
+              </button>
+            </div>
+
             <div className="filters">
               <select value={month} onChange={(e) => setMonth(e.target.value)}>
                 <option value="all">All months</option>
@@ -265,42 +314,117 @@ export default function Dashboard() {
                   </option>
                 ))}
               </select>
-              <input
-                placeholder="Search style, PO no, order id"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+              {viewMode === "log" && (
+                <input
+                  placeholder="Search style, PO no, order id"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              )}
             </div>
 
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    {columns.map((c) => (
-                      <th key={c}>{c}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.slice(0, 200).map((row, i) => (
-                    <tr key={i}>
-                      {columns.map((c) => (
-                        <td key={c}>
-                          {c === "ORDER TYPE" && row[c] ? (
-                            <span className="badge">{row[c]}</span>
-                          ) : (
-                            row[c]
-                          )}
-                        </td>
+            {viewMode === "log" && (
+              <>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        {columns.map((c) => (
+                          <th key={c}>{c}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.slice(0, 200).map((row, i) => (
+                        <tr key={i}>
+                          {columns.map((c) => (
+                            <td key={c}>
+                              {c === "ORDER TYPE" && row[c] ? (
+                                <span className="badge">{row[c]}</span>
+                              ) : (
+                                row[c]
+                              )}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="row-count">
+                  Showing {Math.min(filtered.length, 200)} of {filtered.length}{" "}
+                  rows
+                </p>
+              </>
+            )}
+
+            {viewMode === "month" && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Month</th>
+                      <th>Orders</th>
+                      <th>Plan qty</th>
+                      <th>Cutting qty</th>
+                      <th>Pending qty</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="row-count">
-              Showing {Math.min(filtered.length, 200)} of {filtered.length} rows
-            </p>
+                  </thead>
+                  <tbody>
+                    {monthSummary.map((g) => (
+                      <tr key={g.key}>
+                        <td>{g.key}</td>
+                        <td>{g.rows}</td>
+                        <td>{g.planQty.toLocaleString("en-IN")}</td>
+                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                        <td
+                          style={{
+                            color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {g.pendingQty.toLocaleString("en-IN")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {viewMode === "date" && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Cutting date</th>
+                      <th>Orders</th>
+                      <th>Plan qty</th>
+                      <th>Cutting qty</th>
+                      <th>Pending qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dateSummary.map((g) => (
+                      <tr key={g.key}>
+                        <td>{g.key}</td>
+                        <td>{g.rows}</td>
+                        <td>{g.planQty.toLocaleString("en-IN")}</td>
+                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                        <td
+                          style={{
+                            color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {g.pendingQty.toLocaleString("en-IN")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
