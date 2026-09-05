@@ -1,6 +1,4 @@
-from pathlib import Path
-
-code = r'''"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -17,36 +15,68 @@ import {
   Cell,
 } from "recharts";
 
-const PIE_COLORS = ["#1e3a8a", "#2563eb", "#60a5fa", "#94a3b8", "#0ea5e9"];
+const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#dc2626", "#7c3aed"];
 
-function toNumber(val) {
-  if (val === undefined || val === null) return 0;
-  const cleaned = String(val).replace(/[,%\s]/g, "");
-  const n = parseFloat(cleaned);
-  return Number.isNaN(n) ? 0 : n;
+function toNumber(value) {
+  if (value === undefined || value === null || value === "") return 0;
+
+  const number = parseFloat(
+    String(value).replace(/[,%\s]/g, "")
+  );
+
+  return Number.isNaN(number) ? 0 : number;
 }
 
-function getField(row, names) {
-  for (const name of names) {
-    if (row[name] !== undefined && row[name] !== null && String(row[name]).trim() !== "") {
-      return row[name];
+function getValue(row, fields) {
+  for (const field of fields) {
+    if (
+      row[field] !== undefined &&
+      row[field] !== null &&
+      String(row[field]).trim() !== ""
+    ) {
+      return row[field];
     }
   }
+
   return "";
 }
 
-function statusFor(plan, cut) {
-  const diff = cut - plan;
-  const pct = plan > 0 ? (diff / plan) * 100 : 0;
-  if (pct > 10) return "EXCESS";
-  if (pct < 0) return "SHORT";
+function getStatus(planQty, cutQty) {
+  if (!planQty) return "OK";
+
+  const differencePercent =
+    ((cutQty - planQty) / planQty) * 100;
+
+  if (differencePercent > 10) {
+    return "EXCESS";
+  }
+
+  if (differencePercent < 0) {
+    return "SHORT";
+  }
+
   return "OK";
 }
 
-function statusStyle(result) {
-  if (result === "EXCESS") return { background: "#fee2e2", color: "#b91c1c", fontWeight: 800 };
-  if (result === "SHORT") return { background: "#fff7ed", color: "#c2410c", fontWeight: 800 };
-  return { background: "#dcfce7", color: "#15803d", fontWeight: 800 };
+function getStatusStyle(status) {
+  if (status === "EXCESS") {
+    return {
+      background: "#fee2e2",
+      color: "#b91c1c",
+    };
+  }
+
+  if (status === "SHORT") {
+    return {
+      background: "#fff7ed",
+      color: "#c2410c",
+    };
+  }
+
+  return {
+    background: "#dcfce7",
+    color: "#15803d",
+  };
 }
 
 export default function Dashboard() {
@@ -59,268 +89,493 @@ export default function Dashboard() {
   const [location, setLocation] = useState("all");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("log");
-  const [selectedMonths, setSelectedMonths] = useState([]);
 
   const [styleQuery, setStyleQuery] = useState("");
   const [showStyleDropdown, setShowStyleDropdown] = useState(false);
 
   const [collectionQuery, setCollectionQuery] = useState("");
-  const [showCollectionDropdown, setShowCollectionDropdown] = useState(false);
+  const [showCollectionDropdown, setShowCollectionDropdown] =
+    useState(false);
+
+  const [selectedMonths, setSelectedMonths] = useState([]);
+
+  // ---------------------------------------------------------
+  // LOAD DATA
+  // ---------------------------------------------------------
 
   async function loadData() {
     try {
-      const r = await fetch("/api/sheet-data", { cache: "no-store" });
-      if (!r.ok) throw new Error("Failed to fetch data");
+      const response = await fetch("/api/sheet-data", {
+        cache: "no-store",
+      });
 
-      const data = await r.json();
+      if (!response.ok) {
+        throw new Error("Failed to fetch sheet data");
+      }
+
+      const data = await response.json();
 
       if (data.error) {
+        console.error(data.error);
         setStatus("error");
         return;
       }
 
-      setRows(data.rows || []);
-      setFetchedAt(data.fetchedAt || new Date().toISOString());
+      setRows(Array.isArray(data.rows) ? data.rows : []);
+
+      setFetchedAt(
+        data.fetchedAt || new Date().toISOString()
+      );
+
       setStatus("ready");
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      console.error("Dashboard error:", error);
       setStatus("error");
     }
   }
 
+  // First load
   useEffect(() => {
     loadData();
   }, []);
 
+  // Auto refresh every 1 minute
   useEffect(() => {
-    const interval = setInterval(loadData, 60 * 1000);
+    const interval = setInterval(() => {
+      loadData();
+    }, 60 * 1000);
+
     return () => clearInterval(interval);
   }, []);
 
-  const months = useMemo(
-    () => Array.from(new Set(rows.map((r) => String(r["MONTH"] || "").trim()).filter(Boolean))),
-    [rows]
-  );
+  // ---------------------------------------------------------
+  // BASIC FILTER VALUES
+  // ---------------------------------------------------------
 
-  const orderTypes = useMemo(
-    () => Array.from(new Set(rows.map((r) => String(r["ORDER TYPE"] || "").trim()).filter(Boolean))),
-    [rows]
-  );
+  const months = useMemo(() => {
+    return Array.from(
+      new Set(
+        rows
+          .map((row) =>
+            String(row["MONTH"] || "").trim()
+          )
+          .filter(Boolean)
+      )
+    ).sort((a, b) =>
+      a.localeCompare(b, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+  }, [rows]);
 
-  const locations = useMemo(
-    () => Array.from(new Set(rows.map((r) => String(r["LOCATION"] || "").trim()).filter(Boolean))),
-    [rows]
-  );
+  const orderTypes = useMemo(() => {
+    return Array.from(
+      new Set(
+        rows
+          .map((row) =>
+            String(row["ORDER TYPE"] || "").trim()
+          )
+          .filter(Boolean)
+      )
+    ).sort();
+  }, [rows]);
 
-  const filtered = useMemo(() => {
-    return rows.filter((r) => {
-      if (month !== "all" && r["MONTH"] !== month) return false;
-      if (orderType !== "all" && r["ORDER TYPE"] !== orderType) return false;
-      if (location !== "all" && r["LOCATION"] !== location) return false;
+  const locations = useMemo(() => {
+    return Array.from(
+      new Set(
+        rows
+          .map((row) =>
+            String(row["LOCATION"] || "").trim()
+          )
+          .filter(Boolean)
+      )
+    ).sort();
+  }, [rows]);
+
+  // ---------------------------------------------------------
+  // MAIN FILTER
+  // ---------------------------------------------------------
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      if (
+        month !== "all" &&
+        String(row["MONTH"] || "").trim() !== month
+      ) {
+        return false;
+      }
+
+      if (
+        orderType !== "all" &&
+        String(row["ORDER TYPE"] || "").trim() !== orderType
+      ) {
+        return false;
+      }
+
+      if (
+        location !== "all" &&
+        String(row["LOCATION"] || "").trim() !== location
+      ) {
+        return false;
+      }
 
       if (search.trim()) {
-        const hay = `${r["STYLE NAME"] || ""} ${r["PO NO"] || ""} ${r["ORDER ID"] || ""} ${getField(r, ["JOB CARD NO", "JOB CARD", "JOB CARD NUMBER"])}`.toLowerCase();
-        if (!hay.includes(search.toLowerCase())) return false;
+        const searchText = search.toLowerCase();
+
+        const combinedText = [
+          row["STYLE NAME"],
+          row["PO NO"],
+          row["ORDER ID"],
+          row["ORDER TYPE"],
+          row["LOCATION"],
+          row["OPERATION"],
+          getValue(row, [
+            "JOB CARD NO",
+            "JOB CARD",
+            "JOB CARD NUMBER",
+          ]),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+
+        if (!combinedText.includes(searchText)) {
+          return false;
+        }
       }
 
       return true;
     });
-  }, [rows, month, orderType, location, search]);
+  }, [
+    rows,
+    month,
+    orderType,
+    location,
+    search,
+  ]);
+
+  // ---------------------------------------------------------
+  // MAIN TOTALS
+  // ---------------------------------------------------------
 
   const totals = useMemo(() => {
-    const planQty = filtered.reduce((s, r) => s + toNumber(r["PLAN QTY"]), 0);
-    const cuttingQty = filtered.reduce((s, r) => s + toNumber(r["CUTTING QTY"]), 0);
-    const pendingQty = planQty - cuttingQty;
-
-    const pctValues = filtered.map((r) => toNumber(r["QTY CUT IN %"])).filter((n) => n > 0);
-    const avgPct = pctValues.length
-      ? (pctValues.reduce((a, b) => a + b, 0) / pctValues.length).toFixed(1)
-      : "0";
-
-    return { poCount: filtered.length, planQty, cuttingQty, pendingQty, avgPct };
-  }, [filtered]);
-
-  const monthChartData = useMemo(() => {
-    const map = {};
-    filtered.forEach((r) => {
-      const m = r["MONTH"] || "—";
-      if (!map[m]) map[m] = { month: m, planQty: 0, cuttingQty: 0 };
-      map[m].planQty += toNumber(r["PLAN QTY"]);
-      map[m].cuttingQty += toNumber(r["CUTTING QTY"]);
-    });
-    return Object.values(map);
-  }, [filtered]);
-
-  const orderTypePieData = useMemo(() => {
-    const map = {};
-    filtered.forEach((r) => {
-      const type = r["ORDER TYPE"] || "—";
-      map[type] = (map[type] || 0) + 1;
-    });
-    return Object.entries(map).map(([name, value]) => ({ name, value }));
-  }, [filtered]);
-
-  const locationBarData = useMemo(() => {
-    const map = {};
-    filtered.forEach((r) => {
-      const loc = r["LOCATION"] || "—";
-      if (!map[loc]) map[loc] = { location: loc, cuttingQty: 0 };
-      map[loc].cuttingQty += toNumber(r["CUTTING QTY"]);
-    });
-    return Object.values(map);
-  }, [filtered]);
-
-  function summarizeBy(key) {
-    const map = {};
-    filtered.forEach((r) => {
-      const k = r[key] || "—";
-      if (!map[k]) map[k] = { key: k, rows: 0, planQty: 0, cuttingQty: 0 };
-      map[k].rows++;
-      map[k].planQty += toNumber(r["PLAN QTY"]);
-      map[k].cuttingQty += toNumber(r["CUTTING QTY"]);
-    });
-
-    return Object.values(map)
-      .map((x) => ({ ...x, pendingQty: x.planQty - x.cuttingQty }))
-      .sort((a, b) => String(a.key).localeCompare(String(b.key), undefined, { numeric: true, sensitivity: "base" }));
-  }
-
-  const monthSummary = useMemo(() => summarizeBy("MONTH"), [filtered]);
-  const dateSummary = useMemo(() => summarizeBy("CUTTING DATE"), [filtered]);
-  const operationSummary = useMemo(() => summarizeBy("OPERATION"), [filtered]);
-  const styleSummary = useMemo(() => summarizeBy("STYLE NAME"), [filtered]);
-
-  const monthSummaryFiltered = useMemo(() => {
-    if (!selectedMonths.length) return monthSummary;
-    return monthSummary.filter((g) => selectedMonths.includes(g.key));
-  }, [monthSummary, selectedMonths]);
-
-  const slicerTotals = useMemo(
-    () =>
-      monthSummaryFiltered.reduce(
-        (a, g) => ({
-          planQty: a.planQty + g.planQty,
-          cuttingQty: a.cuttingQty + g.cuttingQty,
-          pendingQty: a.pendingQty + g.pendingQty,
-        }),
-        { planQty: 0, cuttingQty: 0, pendingQty: 0 }
-      ),
-    [monthSummaryFiltered]
-  );
-
-  const styleNamesList = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          rows.map((r) => String(r["STYLE NAME"] || "").trim()).filter(Boolean)
-        )
-      ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })),
-    [rows]
-  );
-
-  const filteredStyleNames = useMemo(() => {
-    const q = styleQuery.trim().toLowerCase();
-    if (!q) return styleNamesList.slice(0, 30);
-    return styleNamesList.filter((s) => s.toLowerCase().includes(q)).slice(0, 30);
-  }, [styleNamesList, styleQuery]);
-
-  const collectionNamesList = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          rows
-            .map((r) => String(getField(r, ["COLLECTION", "Collection", "collection"]) || "").trim())
-            .filter(Boolean)
-        )
-      ).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })),
-    [rows]
-  );
-
-  const filteredCollectionNames = useMemo(() => {
-    const q = collectionQuery.trim().toLowerCase();
-    if (!q) return collectionNamesList.slice(0, 30);
-    return collectionNamesList.filter((s) => s.toLowerCase().includes(q)).slice(0, 30);
-  }, [collectionNamesList, collectionQuery]);
-
-  const selectedStyleMonthSummary = useMemo(() => {
-    if (!styleQuery.trim()) return [];
-
-    const styleRows = rows.filter(
-      (r) => String(r["STYLE NAME"] || "").trim() === styleQuery.trim()
+    const planQty = filteredRows.reduce(
+      (sum, row) =>
+        sum + toNumber(row["PLAN QTY"]),
+      0
     );
 
-    const map = {};
+    const cutQty = filteredRows.reduce(
+      (sum, row) =>
+        sum + toNumber(row["CUTTING QTY"]),
+      0
+    );
 
-    styleRows.forEach((r) => {
-      const m = String(r["MONTH"] || "Unknown").trim();
-      if (!map[m]) map[m] = { month: m, count: 0, planQty: 0, cuttingQty: 0 };
+    return {
+      count: filteredRows.length,
+      planQty,
+      cutQty,
+      pendingQty: planQty - cutQty,
+    };
+  }, [filteredRows]);
 
-      map[m].count++;
-      map[m].planQty += toNumber(r["PLAN QTY"]);
-      map[m].cuttingQty += toNumber(r["CUTTING QTY"]);
+  // ---------------------------------------------------------
+  // STYLE SEARCH
+  // ---------------------------------------------------------
+
+  const styleNames = useMemo(() => {
+    return Array.from(
+      new Set(
+        rows
+          .map((row) =>
+            String(row["STYLE NAME"] || "").trim()
+          )
+          .filter(Boolean)
+      )
+    ).sort((a, b) =>
+      a.localeCompare(b, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+  }, [rows]);
+
+  const filteredStyleNames = useMemo(() => {
+    const query = styleQuery
+      .trim()
+      .toLowerCase();
+
+    if (!query) {
+      return styleNames.slice(0, 30);
+    }
+
+    return styleNames
+      .filter((style) =>
+        style.toLowerCase().includes(query)
+      )
+      .slice(0, 30);
+  }, [styleNames, styleQuery]);
+
+  // ---------------------------------------------------------
+  // SELECTED STYLE MONTH-WISE
+  // ---------------------------------------------------------
+
+  const selectedStyleMonthSummary = useMemo(() => {
+    if (!styleQuery.trim()) {
+      return [];
+    }
+
+    const selectedStyle = styleQuery.trim();
+
+    const styleRows = rows.filter(
+      (row) =>
+        String(row["STYLE NAME"] || "").trim() ===
+        selectedStyle
+    );
+
+    const monthMap = {};
+
+    styleRows.forEach((row) => {
+      const monthName =
+        String(row["MONTH"] || "Unknown").trim();
+
+      if (!monthMap[monthName]) {
+        monthMap[monthName] = {
+          month: monthName,
+          count: 0,
+          planQty: 0,
+          cutQty: 0,
+        };
+      }
+
+      monthMap[monthName].count += 1;
+
+      monthMap[monthName].planQty +=
+        toNumber(row["PLAN QTY"]);
+
+      monthMap[monthName].cutQty +=
+        toNumber(row["CUTTING QTY"]);
     });
 
-    return Object.values(map)
+    return Object.values(monthMap)
       .map((item) => {
-        const difference = item.cuttingQty - item.planQty;
-        const differencePercent = item.planQty > 0 ? (difference / item.planQty) * 100 : 0;
+        const difference =
+          item.cutQty - item.planQty;
+
+        const differencePercent =
+          item.planQty > 0
+            ? (difference / item.planQty) * 100
+            : 0;
 
         return {
           ...item,
           difference,
           differencePercent,
-          result: statusFor(item.planQty, item.cuttingQty),
+          status: getStatus(
+            item.planQty,
+            item.cutQty
+          ),
         };
       })
       .sort((a, b) =>
-        a.month.localeCompare(b.month, undefined, { numeric: true, sensitivity: "base" })
+        a.month.localeCompare(
+          b.month,
+          undefined,
+          {
+            numeric: true,
+            sensitivity: "base",
+          }
+        )
       );
   }, [rows, styleQuery]);
 
-  const styleSearchResult = useMemo(() => {
-    if (!styleQuery.trim()) return null;
+  // ---------------------------------------------------------
+  // STYLE TOTAL
+  // ---------------------------------------------------------
 
-    const matches = rows.filter(
-      (r) => String(r["STYLE NAME"] || "").trim() === styleQuery.trim()
+  const styleTotal = useMemo(() => {
+    if (!styleQuery.trim()) {
+      return null;
+    }
+
+    const styleRows = rows.filter(
+      (row) =>
+        String(row["STYLE NAME"] || "").trim() ===
+        styleQuery.trim()
     );
 
-    const planQty = matches.reduce((s, r) => s + toNumber(r["PLAN QTY"]), 0);
-    const cuttingQty = matches.reduce((s, r) => s + toNumber(r["CUTTING QTY"]), 0);
-    const difference = cuttingQty - planQty;
-    const differencePercent = planQty > 0 ? (difference / planQty) * 100 : 0;
+    const planQty = styleRows.reduce(
+      (sum, row) =>
+        sum + toNumber(row["PLAN QTY"]),
+      0
+    );
+
+    const cutQty = styleRows.reduce(
+      (sum, row) =>
+        sum + toNumber(row["CUTTING QTY"]),
+      0
+    );
+
+    const difference = cutQty - planQty;
+
+    const differencePercent =
+      planQty > 0
+        ? (difference / planQty) * 100
+        : 0;
 
     return {
-      count: matches.length,
+      count: styleRows.length,
       planQty,
-      cuttingQty,
+      cutQty,
       difference,
       differencePercent,
-      result: statusFor(planQty, cuttingQty),
+      status: getStatus(planQty, cutQty),
     };
   }, [rows, styleQuery]);
 
+  // ---------------------------------------------------------
+  // COLLECTION SEARCH
+  // ---------------------------------------------------------
+
+  const collectionNames = useMemo(() => {
+    return Array.from(
+      new Set(
+        rows
+          .map((row) =>
+            String(
+              getValue(row, [
+                "COLLECTION",
+                "Collection",
+                "collection",
+              ]) || ""
+            ).trim()
+          )
+          .filter(Boolean)
+      )
+    ).sort((a, b) =>
+      a.localeCompare(b, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+  }, [rows]);
+
+  const filteredCollectionNames = useMemo(() => {
+    const query = collectionQuery
+      .trim()
+      .toLowerCase();
+
+    if (!query) {
+      return collectionNames.slice(0, 30);
+    }
+
+    return collectionNames
+      .filter((collection) =>
+        collection.toLowerCase().includes(query)
+      )
+      .slice(0, 30);
+  }, [
+    collectionNames,
+    collectionQuery,
+  ]);
+
+  // ---------------------------------------------------------
+  // COLLECTION SUMMARY
+  // ---------------------------------------------------------
+
   const collectionSummary = useMemo(() => {
-    if (!collectionQuery.trim()) return null;
+    if (!collectionQuery.trim()) {
+      return null;
+    }
+
+    const selectedCollection =
+      collectionQuery.trim();
 
     const collectionRows = rows.filter(
-      (r) =>
-        String(getField(r, ["COLLECTION", "Collection", "collection"]) || "").trim() ===
-        collectionQuery.trim()
+      (row) =>
+        String(
+          getValue(row, [
+            "COLLECTION",
+            "Collection",
+            "collection",
+          ]) || ""
+        ).trim() === selectedCollection
     );
 
-    const planQty = collectionRows.reduce((s, r) => s + toNumber(r["PLAN QTY"]), 0);
-    const cutQty = collectionRows.reduce((s, r) => s + toNumber(r["CUTTING QTY"]), 0);
+    const planQty = collectionRows.reduce(
+      (sum, row) =>
+        sum + toNumber(row["PLAN QTY"]),
+      0
+    );
+
+    const cutQty = collectionRows.reduce(
+      (sum, row) =>
+        sum + toNumber(row["CUTTING QTY"]),
+      0
+    );
+
     const pendingQty = planQty - cutQty;
 
     const jobCards = Array.from(
       new Set(
         collectionRows
-          .map((r) =>
-            String(getField(r, ["JOB CARD NO", "JOB CARD", "JOB CARD NUMBER"]) || "").trim()
+          .map((row) =>
+            String(
+              getValue(row, [
+                "JOB CARD NO",
+                "JOB CARD",
+                "JOB CARD NUMBER",
+              ]) || ""
+            ).trim()
           )
           .filter(Boolean)
       )
     );
+
+    // Job card wise summary
+    const jobCardMap = {};
+
+    collectionRows.forEach((row) => {
+      const jobCard =
+        String(
+          getValue(row, [
+            "JOB CARD NO",
+            "JOB CARD",
+            "JOB CARD NUMBER",
+          ]) || ""
+        ).trim() || "N/A";
+
+      if (!jobCardMap[jobCard]) {
+        jobCardMap[jobCard] = {
+          jobCard,
+          planQty: 0,
+          cutQty: 0,
+        };
+      }
+
+      jobCardMap[jobCard].planQty +=
+        toNumber(row["PLAN QTY"]);
+
+      jobCardMap[jobCard].cutQty +=
+        toNumber(row["CUTTING QTY"]);
+    });
+
+    const jobCardSummary = Object.values(
+      jobCardMap
+    )
+      .map((item) => ({
+        ...item,
+        pendingQty:
+          item.planQty - item.cutQty,
+      }))
+      .sort((a, b) =>
+        String(a.jobCard).localeCompare(
+          String(b.jobCard),
+          undefined,
+          { numeric: true }
+        )
+      );
 
     return {
       totalPlanCount: collectionRows.length,
@@ -329,40 +584,223 @@ export default function Dashboard() {
       planQty,
       cutQty,
       pendingQty,
+      jobCardSummary,
     };
   }, [rows, collectionQuery]);
 
-  const columns = rows.length ? Object.keys(rows[0]) : [];
+  // ---------------------------------------------------------
+  // GENERIC SUMMARY
+  // ---------------------------------------------------------
 
-  function toggleMonthSlicer(m) {
-    setSelectedMonths((prev) =>
-      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
-    );
+  function makeSummary(field) {
+    const map = {};
+
+    filteredRows.forEach((row) => {
+      const key =
+        String(row[field] || "—").trim();
+
+      if (!map[key]) {
+        map[key] = {
+          key,
+          count: 0,
+          planQty: 0,
+          cutQty: 0,
+        };
+      }
+
+      map[key].count += 1;
+
+      map[key].planQty +=
+        toNumber(row["PLAN QTY"]);
+
+      map[key].cutQty +=
+        toNumber(row["CUTTING QTY"]);
+    });
+
+    return Object.values(map)
+      .map((item) => ({
+        ...item,
+        pendingQty:
+          item.planQty - item.cutQty,
+      }))
+      .sort((a, b) =>
+        String(a.key).localeCompare(
+          String(b.key),
+          undefined,
+          {
+            numeric: true,
+            sensitivity: "base",
+          }
+        )
+      );
   }
 
+  const monthSummary = useMemo(
+    () => makeSummary("MONTH"),
+    [filteredRows]
+  );
+
+  const dateSummary = useMemo(
+    () => makeSummary("CUTTING DATE"),
+    [filteredRows]
+  );
+
+  const operationSummary = useMemo(
+    () => makeSummary("OPERATION"),
+    [filteredRows]
+  );
+
+  const styleSummary = useMemo(
+    () => makeSummary("STYLE NAME"),
+    [filteredRows]
+  );
+
+  // ---------------------------------------------------------
+  // CHART DATA
+  // ---------------------------------------------------------
+
+  const monthChartData = useMemo(() => {
+    return monthSummary.map((item) => ({
+      month: item.key,
+      planQty: item.planQty,
+      cutQty: item.cutQty,
+    }));
+  }, [monthSummary]);
+
+  const orderTypeChartData = useMemo(() => {
+    const map = {};
+
+    filteredRows.forEach((row) => {
+      const type =
+        String(
+          row["ORDER TYPE"] || "Unknown"
+        ).trim();
+
+      map[type] = (map[type] || 0) + 1;
+    });
+
+    return Object.entries(map).map(
+      ([name, value]) => ({
+        name,
+        value,
+      })
+    );
+  }, [filteredRows]);
+
+  const locationChartData = useMemo(() => {
+    const map = {};
+
+    filteredRows.forEach((row) => {
+      const loc =
+        String(
+          row["LOCATION"] || "Unknown"
+        ).trim();
+
+      if (!map[loc]) {
+        map[loc] = {
+          location: loc,
+          cutQty: 0,
+        };
+      }
+
+      map[loc].cutQty +=
+        toNumber(row["CUTTING QTY"]);
+    });
+
+    return Object.values(map);
+  }, [filteredRows]);
+
+  // ---------------------------------------------------------
+  // TABLE COLUMNS
+  // ---------------------------------------------------------
+
+  const columns = useMemo(() => {
+    if (!rows.length) return [];
+    return Object.keys(rows[0]);
+  }, [rows]);
+
+  // ---------------------------------------------------------
+  // UI
+  // ---------------------------------------------------------
+
   return (
-    <div className="wrap">
-      <div className="topbar">
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#f8fafc",
+        padding: 20,
+        fontFamily:
+          "Arial, Helvetica, sans-serif",
+        color: "#0f172a",
+      }}
+    >
+      {/* HEADER */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 15,
+          flexWrap: "wrap",
+          marginBottom: 20,
+        }}
+      >
         <div>
-          <h1>Cutting Room Dashboard</h1>
-          <p className="sub">Live production tracker, synced from the sheet</p>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: 28,
+              fontWeight: 800,
+            }}
+          >
+            Cutting Room Dashboard
+          </h1>
+
+          <p
+            style={{
+              margin: "5px 0 0",
+              color: "#64748b",
+              fontSize: 14,
+            }}
+          >
+            Live production tracker
+          </p>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
           {fetchedAt && (
-            <span className="refresh-tag">
-              Updated {new Date(fetchedAt).toLocaleString("en-IN")}
+            <span
+              style={{
+                fontSize: 12,
+                color: "#64748b",
+                background: "#fff",
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: "1px solid #e2e8f0",
+              }}
+            >
+              Updated:{" "}
+              {new Date(
+                fetchedAt
+              ).toLocaleString("en-IN")}
             </span>
           )}
 
           <button
             onClick={loadData}
             style={{
-              border: "none",
-              padding: "9px 14px",
-              borderRadius: 8,
+              border: 0,
               background: "#1e3a8a",
               color: "#fff",
+              padding: "9px 15px",
+              borderRadius: 8,
               cursor: "pointer",
               fontWeight: 700,
             }}
@@ -372,233 +810,561 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {status === "loading" && <p className="state">Loading sheet data…</p>}
+      {status === "loading" && (
+        <div
+          style={{
+            background: "#fff",
+            padding: 20,
+            borderRadius: 12,
+            border: "1px solid #e2e8f0",
+          }}
+        >
+          Loading data...
+        </div>
+      )}
 
       {status === "error" && (
-        <p className="state error">
-          Couldn't load the sheet. Check your API and environment settings.
-        </p>
+        <div
+          style={{
+            background: "#fee2e2",
+            color: "#991b1b",
+            padding: 15,
+            borderRadius: 10,
+            marginBottom: 20,
+          }}
+        >
+          Sheet data load nahi ho raha hai.
+          Please `/api/sheet-data` API check karein.
+        </div>
       )}
 
       {status === "ready" && (
         <>
-          <div className="cards">
-            <div className="card">
-              <p className="label">Rows in view</p>
-              <p className="value">{totals.poCount}</p>
-            </div>
+          {/* TOP CARDS */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit,minmax(180px,1fr))",
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <StatCard
+              title="Total Plan Count"
+              value={totals.count}
+            />
 
-            <div className="card">
-              <p className="label">Total plan qty</p>
-              <p className="value">{totals.planQty.toLocaleString("en-IN")}</p>
-            </div>
+            <StatCard
+              title="Plan Qty"
+              value={totals.planQty.toLocaleString(
+                "en-IN"
+              )}
+            />
 
-            <div className="card accent">
-              <p className="label">Total cutting qty</p>
-              <p className="value">{totals.cuttingQty.toLocaleString("en-IN")}</p>
-            </div>
+            <StatCard
+              title="Cut Qty"
+              value={totals.cutQty.toLocaleString(
+                "en-IN"
+              )}
+              accent
+            />
 
-            <div className="card pending">
-              <p className="label">Pending qty</p>
-              <p className="value">{totals.pendingQty.toLocaleString("en-IN")}</p>
-            </div>
+            <StatCard
+              title="Pending Qty"
+              value={totals.pendingQty.toLocaleString(
+                "en-IN"
+              )}
+              pending
+            />
+          </div>
 
-            <div className="card accent">
-              <p className="label">Avg qty cut %</p>
-              <p className="value">{totals.avgPct}%</p>
+          {/* FILTERS */}
+          <div
+            style={{
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 12px",
+                fontSize: 17,
+              }}
+            >
+              Filters
+            </h2>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(180px,1fr))",
+                gap: 10,
+              }}
+            >
+              <select
+                value={month}
+                onChange={(e) =>
+                  setMonth(e.target.value)
+                }
+                style={inputStyle}
+              >
+                <option value="all">
+                  All Months
+                </option>
+
+                {months.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={orderType}
+                onChange={(e) =>
+                  setOrderType(e.target.value)
+                }
+                style={inputStyle}
+              >
+                <option value="all">
+                  All Order Types
+                </option>
+
+                {orderTypes.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={location}
+                onChange={(e) =>
+                  setLocation(e.target.value)
+                }
+                style={inputStyle}
+              >
+                <option value="all">
+                  All Locations
+                </option>
+
+                {locations.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                value={search}
+                onChange={(e) =>
+                  setSearch(e.target.value)
+                }
+                placeholder="Search Style / PO / Job Card"
+                style={inputStyle}
+              />
             </div>
           </div>
 
           {/* STYLE SEARCH */}
-          <div className="panel" style={{ marginTop: 16, position: "relative", zIndex: 30 }}>
-            <h2>🔍 Style Search</h2>
+          <div
+            style={{
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+              position: "relative",
+              zIndex: 30,
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 12px",
+                fontSize: 17,
+              }}
+            >
+              🔍 Style Search
+            </h2>
 
-            <div style={{ position: "relative", width: "100%", maxWidth: 500 }}>
+            <div
+              style={{
+                position: "relative",
+                maxWidth: 550,
+              }}
+            >
               <input
-                type="text"
                 value={styleQuery}
-                placeholder="Search Style Name..."
                 onChange={(e) => {
-                  setStyleQuery(e.target.value);
+                  setStyleQuery(
+                    e.target.value
+                  );
                   setShowStyleDropdown(true);
                 }}
-                onFocus={() => setShowStyleDropdown(true)}
+                onFocus={() =>
+                  setShowStyleDropdown(true)
+                }
+                placeholder="Search Style Name..."
                 style={{
+                  ...inputStyle,
                   width: "100%",
                   boxSizing: "border-box",
-                  padding: "12px 42px 12px 14px",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 10,
-                  fontSize: 14,
-                  outline: "none",
                 }}
               />
-
-              {styleQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStyleQuery("");
-                    setShowStyleDropdown(false);
-                  }}
-                  style={{
-                    position: "absolute",
-                    right: 10,
-                    top: 9,
-                    width: 28,
-                    height: 28,
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                    fontSize: 20,
-                    color: "#64748b",
-                  }}
-                >
-                  ×
-                </button>
-              )}
 
               {showStyleDropdown && (
                 <div
                   style={{
                     position: "absolute",
-                    top: "calc(100% + 5px)",
                     left: 0,
                     right: 0,
-                    zIndex: 99999,
+                    top: "calc(100% + 4px)",
                     background: "#fff",
-                    border: "1px solid #dbe3ef",
+                    border: "1px solid #cbd5e1",
                     borderRadius: 10,
-                    maxHeight: 320,
+                    maxHeight: 300,
                     overflowY: "auto",
-                    boxShadow: "0 12px 30px rgba(15,23,42,0.18)",
+                    boxShadow:
+                      "0 12px 30px rgba(0,0,0,.15)",
+                    zIndex: 9999,
                   }}
                 >
-                  {filteredStyleNames.length === 0 ? (
-                    <div style={{ padding: 14, color: "#64748b" }}>
+                  {filteredStyleNames.length ===
+                  0 ? (
+                    <div
+                      style={{
+                        padding: 12,
+                        color: "#64748b",
+                      }}
+                    >
                       No style found
                     </div>
                   ) : (
-                    filteredStyleNames.map((style) => (
-                      <button
-                        type="button"
-                        key={style}
-                        onClick={() => {
-                          setStyleQuery(style);
-                          setShowStyleDropdown(false);
-                        }}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "11px 14px",
-                          border: "none",
-                          borderBottom: "1px solid #f1f5f9",
-                          background: "#fff",
-                          cursor: "pointer",
-                          fontSize: 14,
-                        }}
-                      >
-                        👕 {style}
-                      </button>
-                    ))
+                    filteredStyleNames.map(
+                      (style) => (
+                        <button
+                          key={style}
+                          type="button"
+                          onClick={() => {
+                            setStyleQuery(style);
+                            setShowStyleDropdown(
+                              false
+                            );
+                          }}
+                          style={{
+                            width: "100%",
+                            textAlign: "left",
+                            padding:
+                              "11px 14px",
+                            border: 0,
+                            borderBottom:
+                              "1px solid #f1f5f9",
+                            background: "#fff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          👕 {style}
+                        </button>
+                      )
+                    )
                   )}
                 </div>
               )}
             </div>
           </div>
 
-          {/* COLLECTION SEARCH */}
-          <div className="panel" style={{ marginTop: 16, position: "relative", zIndex: 20 }}>
-            <h2>📦 Collection Search</h2>
-
-            <div style={{ position: "relative", width: "100%", maxWidth: 500 }}>
-              <input
-                type="text"
-                value={collectionQuery}
-                placeholder="Search Collection..."
-                onChange={(e) => {
-                  setCollectionQuery(e.target.value);
-                  setShowCollectionDropdown(true);
-                }}
-                onFocus={() => setShowCollectionDropdown(true)}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  padding: "12px 42px 12px 14px",
-                  border: "1px solid #cbd5e1",
-                  borderRadius: 10,
-                  fontSize: 14,
-                  outline: "none",
-                }}
+          {/* STYLE TOTAL */}
+          {styleTotal && (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit,minmax(170px,1fr))",
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              <StatCard
+                title="Style Count"
+                value={styleTotal.count}
               />
 
-              {collectionQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCollectionQuery("");
-                    setShowCollectionDropdown(false);
-                  }}
+              <StatCard
+                title="Plan Qty"
+                value={styleTotal.planQty.toLocaleString(
+                  "en-IN"
+                )}
+              />
+
+              <StatCard
+                title="Cut Qty"
+                value={styleTotal.cutQty.toLocaleString(
+                  "en-IN"
+                )}
+                accent
+              />
+
+              <StatCard
+                title="Difference Qty"
+                value={
+                  styleTotal.difference > 0
+                    ? `+${styleTotal.difference.toLocaleString(
+                        "en-IN"
+                      )}`
+                    : styleTotal.difference.toLocaleString(
+                        "en-IN"
+                      )
+                }
+              />
+
+              <StatCard
+                title="Difference %"
+                value={`${styleTotal.differencePercent >= 0 ? "+" : ""}${styleTotal.differencePercent.toFixed(
+                  1
+                )}%`}
+              />
+
+              <div
+                style={{
+                  background: "#fff",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 12,
+                  padding: 16,
+                }}
+              >
+                <div
                   style={{
-                    position: "absolute",
-                    right: 10,
-                    top: 9,
-                    width: 28,
-                    height: 28,
-                    border: "none",
-                    background: "transparent",
-                    cursor: "pointer",
-                    fontSize: 20,
                     color: "#64748b",
+                    fontSize: 12,
+                    marginBottom: 6,
                   }}
                 >
-                  ×
-                </button>
-              )}
+                  Status
+                </div>
+
+                <span
+                  style={{
+                    display: "inline-block",
+                    padding: "6px 10px",
+                    borderRadius: 7,
+                    fontWeight: 800,
+                    fontSize: 13,
+                    ...getStatusStyle(
+                      styleTotal.status
+                    ),
+                  }}
+                >
+                  {styleTotal.status}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* STYLE MONTH WISE */}
+          {styleQuery && (
+            <div
+              style={{
+                background: "#fff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 16,
+              }}
+            >
+              <h2
+                style={{
+                  margin: "0 0 14px",
+                  fontSize: 17,
+                }}
+              >
+                📊 Style Month-wise Analysis
+              </h2>
+
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Month</th>
+                    <th>Count</th>
+                    <th>Plan Qty</th>
+                    <th>Cut Qty</th>
+                    <th>Difference Qty</th>
+                    <th>Difference %</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {selectedStyleMonthSummary.map(
+                    (item) => (
+                      <tr key={item.month}>
+                        <td>
+                          <strong>
+                            {item.month}
+                          </strong>
+                        </td>
+
+                        <td>{item.count}</td>
+
+                        <td>
+                          {item.planQty.toLocaleString(
+                            "en-IN"
+                          )}
+                        </td>
+
+                        <td>
+                          {item.cutQty.toLocaleString(
+                            "en-IN"
+                          )}
+                        </td>
+
+                        <td>
+                          {item.difference > 0
+                            ? "+"
+                            : ""}
+                          {item.difference.toLocaleString(
+                            "en-IN"
+                          )}
+                        </td>
+
+                        <td>
+                          {item.differencePercent >=
+                          0
+                            ? "+"
+                            : ""}
+                          {item.differencePercent.toFixed(
+                            1
+                          )}
+                          %
+                        </td>
+
+                        <td>
+                          <StatusBadge
+                            status={
+                              item.status
+                            }
+                          />
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </Table>
+            </div>
+          )}
+
+          {/* COLLECTION SEARCH */}
+          <div
+            style={{
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+              position: "relative",
+              zIndex: 20,
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 12px",
+                fontSize: 17,
+              }}
+            >
+              📦 Collection Search
+            </h2>
+
+            <div
+              style={{
+                position: "relative",
+                maxWidth: 550,
+              }}
+            >
+              <input
+                value={collectionQuery}
+                onChange={(e) => {
+                  setCollectionQuery(
+                    e.target.value
+                  );
+                  setShowCollectionDropdown(
+                    true
+                  );
+                }}
+                onFocus={() =>
+                  setShowCollectionDropdown(
+                    true
+                  )
+                }
+                placeholder="Search Collection..."
+                style={{
+                  ...inputStyle,
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              />
 
               {showCollectionDropdown && (
                 <div
                   style={{
                     position: "absolute",
-                    top: "calc(100% + 5px)",
                     left: 0,
                     right: 0,
-                    zIndex: 99999,
+                    top: "calc(100% + 4px)",
                     background: "#fff",
-                    border: "1px solid #dbe3ef",
+                    border:
+                      "1px solid #cbd5e1",
                     borderRadius: 10,
-                    maxHeight: 320,
+                    maxHeight: 300,
                     overflowY: "auto",
-                    boxShadow: "0 12px 30px rgba(15,23,42,0.18)",
+                    boxShadow:
+                      "0 12px 30px rgba(0,0,0,.15)",
+                    zIndex: 9999,
                   }}
                 >
-                  {filteredCollectionNames.length === 0 ? (
-                    <div style={{ padding: 14, color: "#64748b" }}>
+                  {filteredCollectionNames.length ===
+                  0 ? (
+                    <div
+                      style={{
+                        padding: 12,
+                        color: "#64748b",
+                      }}
+                    >
                       No collection found
                     </div>
                   ) : (
-                    filteredCollectionNames.map((collection) => (
-                      <button
-                        type="button"
-                        key={collection}
-                        onClick={() => {
-                          setCollectionQuery(collection);
-                          setShowCollectionDropdown(false);
-                        }}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "11px 14px",
-                          border: "none",
-                          borderBottom: "1px solid #f1f5f9",
-                          background: "#fff",
-                          cursor: "pointer",
-                          fontSize: 14,
-                        }}
-                      >
-                        📦 {collection}
-                      </button>
-                    ))
+                    filteredCollectionNames.map(
+                      (collection) => (
+                        <button
+                          key={collection}
+                          type="button"
+                          onClick={() => {
+                            setCollectionQuery(
+                              collection
+                            );
+                            setShowCollectionDropdown(
+                              false
+                            );
+                          }}
+                          style={{
+                            width: "100%",
+                            textAlign: "left",
+                            padding:
+                              "11px 14px",
+                            border: 0,
+                            borderBottom:
+                              "1px solid #f1f5f9",
+                            background: "#fff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          📦 {collection}
+                        </button>
+                      )
+                    )
                   )}
                 </div>
               )}
@@ -608,265 +1374,218 @@ export default function Dashboard() {
           {/* COLLECTION SUMMARY */}
           {collectionSummary && (
             <>
-              <div className="cards" style={{ marginTop: 16 }}>
-                <div className="card">
-                  <p className="label">Total Plan Count</p>
-                  <p className="value">{collectionSummary.totalPlanCount}</p>
-                </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns:
+                    "repeat(auto-fit,minmax(170px,1fr))",
+                  gap: 12,
+                  marginBottom: 16,
+                }}
+              >
+                <StatCard
+                  title="Total Plan Count"
+                  value={
+                    collectionSummary.totalPlanCount
+                  }
+                />
 
-                <div className="card">
-                  <p className="label">Job Card Count</p>
-                  <p className="value">{collectionSummary.jobCardCount}</p>
-                </div>
+                <StatCard
+                  title="Job Card Count"
+                  value={
+                    collectionSummary.jobCardCount
+                  }
+                />
 
-                <div className="card">
-                  <p className="label">Plan Qty</p>
-                  <p className="value">
-                    {collectionSummary.planQty.toLocaleString("en-IN")}
-                  </p>
-                </div>
+                <StatCard
+                  title="Plan Qty"
+                  value={collectionSummary.planQty.toLocaleString(
+                    "en-IN"
+                  )}
+                />
 
-                <div className="card accent">
-                  <p className="label">Cut Qty</p>
-                  <p className="value">
-                    {collectionSummary.cutQty.toLocaleString("en-IN")}
-                  </p>
-                </div>
+                <StatCard
+                  title="Cut Qty"
+                  value={collectionSummary.cutQty.toLocaleString(
+                    "en-IN"
+                  )}
+                  accent
+                />
 
-                <div className="card pending">
-                  <p className="label">Pending Qty</p>
-                  <p className="value">
-                    {collectionSummary.pendingQty.toLocaleString("en-IN")}
-                  </p>
-                </div>
+                <StatCard
+                  title="Pending Qty"
+                  value={collectionSummary.pendingQty.toLocaleString(
+                    "en-IN"
+                  )}
+                  pending
+                />
               </div>
 
-              {collectionSummary.jobCards.length > 0 && (
-                <div className="panel" style={{ marginTop: 16 }}>
-                  <h2>Job Card No.</h2>
+              {/* JOB CARD TABLE */}
+              <div
+                style={{
+                  background: "#fff",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 16,
+                }}
+              >
+                <h2
+                  style={{
+                    margin: "0 0 14px",
+                    fontSize: 17,
+                  }}
+                >
+                  📋 Job Card-wise Collection Summary
+                </h2>
 
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {collectionSummary.jobCards.map((jobCard) => (
-                      <span
-                        key={jobCard}
-                        style={{
-                          padding: "6px 10px",
-                          background: "#eff6ff",
-                          color: "#1e3a8a",
-                          borderRadius: 7,
-                          fontSize: 12,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {jobCard}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+                {collectionSummary.jobCardSummary
+                  .length === 0 ? (
+                  <p
+                    style={{
+                      color: "#64748b",
+                    }}
+                  >
+                    Job Card No. data nahi mila.
+                  </p>
+                ) : (
+                  <Table>
+                    <thead>
+                      <tr>
+                        <th>Job Card No.</th>
+                        <th>Plan Qty</th>
+                        <th>Cut Qty</th>
+                        <th>Pending Qty</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {collectionSummary.jobCardSummary.map(
+                        (item) => (
+                          <tr
+                            key={item.jobCard}
+                          >
+                            <td>
+                              <strong>
+                                {item.jobCard}
+                              </strong>
+                            </td>
+
+                            <td>
+                              {item.planQty.toLocaleString(
+                                "en-IN"
+                              )}
+                            </td>
+
+                            <td>
+                              {item.cutQty.toLocaleString(
+                                "en-IN"
+                              )}
+                            </td>
+
+                            <td>
+                              {item.pendingQty.toLocaleString(
+                                "en-IN"
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </Table>
+                )}
+              </div>
             </>
           )}
 
-          {/* STYLE SUMMARY */}
-          {styleSearchResult && (
-            <div className="cards" style={{ marginTop: 16 }}>
-              <div className="card">
-                <p className="label">Times Cut / Orders</p>
-                <p className="value">{styleSearchResult.count}</p>
-              </div>
-
-              <div className="card">
-                <p className="label">Total Plan Qty</p>
-                <p className="value">
-                  {styleSearchResult.planQty.toLocaleString("en-IN")}
-                </p>
-              </div>
-
-              <div className="card accent">
-                <p className="label">Total Cutting Qty</p>
-                <p className="value">
-                  {styleSearchResult.cuttingQty.toLocaleString("en-IN")}
-                </p>
-              </div>
-
-              <div className="card">
-                <p className="label">Difference Qty</p>
-                <p
-                  className="value"
-                  style={{
-                    color:
-                      styleSearchResult.difference > 0
-                        ? "#b91c1c"
-                        : styleSearchResult.difference < 0
-                        ? "#c2410c"
-                        : "#15803d",
-                  }}
-                >
-                  {styleSearchResult.difference > 0 ? "+" : ""}
-                  {styleSearchResult.difference.toLocaleString("en-IN")}
-                </p>
-              </div>
-
-              <div className="card">
-                <p className="label">Difference %</p>
-                <p className="value">
-                  {styleSearchResult.differencePercent > 0 ? "+" : ""}
-                  {styleSearchResult.differencePercent.toFixed(1)}%
-                </p>
-              </div>
-
-              <div className="card">
-                <p className="label">Overall Status</p>
-                <p
-                  className="value"
-                  style={{
-                    fontSize: 22,
-                    ...statusStyle(styleSearchResult.result),
-                    padding: "5px 10px",
-                    borderRadius: 8,
-                  }}
-                >
-                  {styleSearchResult.result}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* STYLE MONTH-WISE */}
-          {styleQuery && (
-            <div className="panel" style={{ marginTop: 16 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 10,
-                  flexWrap: "wrap",
-                  marginBottom: 14,
-                }}
-              >
-                <div>
-                  <h2>📊 Month-wise Cutting Analysis</h2>
-                  <p style={{ margin: 0, color: "#64748b", fontSize: 13 }}>
-                    {styleQuery}
-                  </p>
-                </div>
-
-                <div style={{ fontSize: 12, color: "#64748b" }}>
-                  More than 10% cutting =
-                  <strong style={{ color: "#b91c1c", marginLeft: 4 }}>
-                    EXCESS
-                  </strong>
-                </div>
-              </div>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Month</th>
-                      <th>Count</th>
-                      <th>Plan Qty</th>
-                      <th>Cutting Qty</th>
-                      <th>Difference Qty</th>
-                      <th>Difference %</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {selectedStyleMonthSummary.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} style={{ textAlign: "center", padding: 20 }}>
-                          No data found for this style.
-                        </td>
-                      </tr>
-                    ) : (
-                      selectedStyleMonthSummary.map((item) => (
-                        <tr key={item.month}>
-                          <td><strong>{item.month}</strong></td>
-                          <td>{item.count}</td>
-                          <td>{item.planQty.toLocaleString("en-IN")}</td>
-                          <td>{item.cuttingQty.toLocaleString("en-IN")}</td>
-
-                          <td
-                            style={{
-                              fontWeight: 700,
-                              color:
-                                item.difference > 0
-                                  ? "#b91c1c"
-                                  : item.difference < 0
-                                  ? "#c2410c"
-                                  : "#15803d",
-                            }}
-                          >
-                            {item.difference > 0 ? "+" : ""}
-                            {item.difference.toLocaleString("en-IN")}
-                          </td>
-
-                          <td>
-                            {item.differencePercent > 0 ? "+" : ""}
-                            {item.differencePercent.toFixed(1)}%
-                          </td>
-
-                          <td>
-                            <span
-                              style={{
-                                display: "inline-block",
-                                padding: "5px 10px",
-                                borderRadius: 7,
-                                fontSize: 12,
-                                ...statusStyle(item.result),
-                              }}
-                            >
-                              {item.result}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
           {/* CHARTS */}
-          <div className="panels">
-            <div className="panel">
-              <h2>Plan Qty vs Cutting Qty by Month</h2>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit,minmax(320px,1fr))",
+              gap: 16,
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={panelStyle}
+            >
+              <h2 style={headingStyle}>
+                Plan Qty vs Cut Qty
+              </h2>
 
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={monthChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <ResponsiveContainer
+                width="100%"
+                height={280}
+              >
+                <BarChart
+                  data={monthChartData}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                  />
+
                   <XAxis dataKey="month" />
+
                   <YAxis />
+
                   <Tooltip />
+
                   <Legend />
-                  <Bar dataKey="planQty" name="Plan Qty" fill="#1e3a8a" />
-                  <Bar dataKey="cuttingQty" name="Cutting Qty" fill="#60a5fa" />
+
+                  <Bar
+                    dataKey="planQty"
+                    name="Plan Qty"
+                    fill="#2563eb"
+                  />
+
+                  <Bar
+                    dataKey="cutQty"
+                    name="Cut Qty"
+                    fill="#16a34a"
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="panel">
-              <h2>Orders by Type</h2>
+            <div
+              style={panelStyle}
+            >
+              <h2 style={headingStyle}>
+                Orders by Type
+              </h2>
 
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer
+                width="100%"
+                height={280}
+              >
                 <PieChart>
                   <Pie
-                    data={orderTypePieData}
+                    data={
+                      orderTypeChartData
+                    }
                     dataKey="value"
                     nameKey="name"
                     outerRadius={90}
-                    label={({ name, value }) => `${name}: ${value}`}
+                    label
                   >
-                    {orderTypePieData.map((entry, i) => (
-                      <Cell
-                        key={entry.name}
-                        fill={PIE_COLORS[i % PIE_COLORS.length]}
-                      />
-                    ))}
+                    {orderTypeChartData.map(
+                      (entry, index) => (
+                        <Cell
+                          key={
+                            entry.name
+                          }
+                          fill={
+                            COLORS[
+                              index %
+                                COLORS.length
+                            ]
+                          }
+                        />
+                      )
+                    )}
                   </Pie>
 
                   <Tooltip />
@@ -875,245 +1594,206 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {locations.length > 1 && (
-            <div className="panel" style={{ marginBottom: 16 }}>
-              <h2>Cutting Qty by Location</h2>
+          {/* LOCATION CHART */}
+          {locationChartData.length > 0 && (
+            <div
+              style={{
+                ...panelStyle,
+                marginBottom: 16,
+              }}
+            >
+              <h2 style={headingStyle}>
+                Cutting Qty by Location
+              </h2>
 
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={locationBarData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <ResponsiveContainer
+                width="100%"
+                height={250}
+              >
+                <BarChart
+                  data={locationChartData}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                  />
+
                   <XAxis dataKey="location" />
+
                   <YAxis />
+
                   <Tooltip />
-                  <Bar dataKey="cuttingQty" name="Cutting Qty" fill="#2563eb" />
+
+                  <Bar
+                    dataKey="cutQty"
+                    name="Cut Qty"
+                    fill="#7c3aed"
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
 
-          {/* MAIN TABLE */}
-          <div className="panel">
-            <div className="view-tabs">
+          {/* VIEW TABS */}
+          <div
+            style={{
+              background: "#fff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 12,
+              padding: 16,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flexWrap: "wrap",
+                marginBottom: 16,
+              }}
+            >
               {[
                 ["log", "Order Log"],
-                ["month", "Month-wise Pending"],
-                ["date", "Date-wise Pending"],
-                ["operation", "Operation Overview"],
+                ["month", "Month-wise"],
+                ["date", "Date-wise"],
+                [
+                  "operation",
+                  "Operation",
+                ],
                 ["style", "Style-wise"],
               ].map(([key, label]) => (
                 <button
                   key={key}
-                  className={viewMode === key ? "active" : ""}
-                  onClick={() => setViewMode(key)}
+                  onClick={() =>
+                    setViewMode(key)
+                  }
+                  style={{
+                    border: 0,
+                    borderRadius: 8,
+                    padding:
+                      "9px 14px",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    background:
+                      viewMode === key
+                        ? "#1e3a8a"
+                        : "#e2e8f0",
+                    color:
+                      viewMode === key
+                        ? "#fff"
+                        : "#334155",
+                  }}
                 >
                   {label}
                 </button>
               ))}
             </div>
 
-            {viewMode === "month" && (
-              <div className="slicer">
-                {monthSummary.map((g) => {
-                  const active =
-                    selectedMonths.length === 0 ||
-                    selectedMonths.includes(g.key);
-
-                  return (
-                    <button
-                      key={g.key}
-                      className={`slicer-pill ${active ? "on" : ""}`}
-                      onClick={() => toggleMonthSlicer(g.key)}
-                    >
-                      {g.key}
-                    </button>
-                  );
-                })}
-
-                {selectedMonths.length > 0 && (
-                  <button className="slicer-clear" onClick={() => setSelectedMonths([])}>
-                    Clear
-                  </button>
-                )}
-              </div>
-            )}
-
-            <div className="filters">
-              {viewMode !== "month" && (
-                <select value={month} onChange={(e) => setMonth(e.target.value)}>
-                  <option value="all">All months</option>
-                  {months.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              )}
-
-              <select value={orderType} onChange={(e) => setOrderType(e.target.value)}>
-                <option value="all">All order types</option>
-                {orderTypes.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-
-              <select value={location} onChange={(e) => setLocation(e.target.value)}>
-                <option value="all">All locations</option>
-                {locations.map((l) => (
-                  <option key={l} value={l}>{l}</option>
-                ))}
-              </select>
-
-              {viewMode === "log" && (
-                <input
-                  placeholder="Search style, PO no, order id, job card"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              )}
-            </div>
-
+            {/* ORDER LOG */}
             {viewMode === "log" && (
               <>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        {columns.map((c) => <th key={c}>{c}</th>)}
-                      </tr>
-                    </thead>
+                <Table>
+                  <thead>
+                    <tr>
+                      {columns.map(
+                        (column) => (
+                          <th
+                            key={
+                              column
+                            }
+                          >
+                            {column}
+                          </th>
+                        )
+                      )}
+                    </tr>
+                  </thead>
 
-                    <tbody>
-                      {filtered.slice(0, 200).map((row, i) => (
-                        <tr key={i}>
-                          {columns.map((c) => (
-                            <td key={c}>
-                              {c === "ORDER TYPE" && row[c] ? (
-                                <span className="badge">{row[c]}</span>
-                              ) : (
-                                row[c]
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                  <tbody>
+                    {filteredRows
+                      .slice(0, 200)
+                      .map(
+                        (row, index) => (
+                          <tr
+                            key={
+                              index
+                            }
+                          >
+                            {columns.map(
+                              (
+                                column
+                              ) => (
+                                <td
+                                  key={
+                                    column
+                                  }
+                                >
+                                  {
+                                    row[
+                                      column
+                                    ]
+                                  }
+                                </td>
+                              )
+                            )}
+                          </tr>
+                        )
+                      )}
+                  </tbody>
+                </Table>
 
-                <p className="row-count">
-                  Showing {Math.min(filtered.length, 200)} of {filtered.length} rows
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#64748b",
+                    marginTop: 10,
+                  }}
+                >
+                  Showing{" "}
+                  {Math.min(
+                    filteredRows.length,
+                    200
+                  )}{" "}
+                  of{" "}
+                  {
+                    filteredRows.length
+                  }{" "}
+                  rows
                 </p>
               </>
             )}
 
+            {/* MONTH */}
             {viewMode === "month" && (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Month</th>
-                      <th>Orders</th>
-                      <th>Plan Qty</th>
-                      <th>Cutting Qty</th>
-                      <th>Pending Qty</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {monthSummaryFiltered.map((g) => (
-                      <tr key={g.key}>
-                        <td>{g.key}</td>
-                        <td>{g.rows}</td>
-                        <td>{g.planQty.toLocaleString("en-IN")}</td>
-                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
-                        <td>{g.pendingQty.toLocaleString("en-IN")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <SummaryTable
+                title="Month"
+                data={monthSummary}
+              />
             )}
 
+            {/* DATE */}
             {viewMode === "date" && (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Cutting Date</th>
-                      <th>Orders</th>
-                      <th>Plan Qty</th>
-                      <th>Cutting Qty</th>
-                      <th>Pending Qty</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {dateSummary.map((g) => (
-                      <tr key={g.key}>
-                        <td>{g.key}</td>
-                        <td>{g.rows}</td>
-                        <td>{g.planQty.toLocaleString("en-IN")}</td>
-                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
-                        <td>{g.pendingQty.toLocaleString("en-IN")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <SummaryTable
+                title="Cutting Date"
+                data={dateSummary}
+              />
             )}
 
-            {viewMode === "operation" && (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Operation</th>
-                      <th>Orders</th>
-                      <th>Plan Qty</th>
-                      <th>Cutting Qty</th>
-                      <th>Pending Qty</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {operationSummary.map((g) => (
-                      <tr key={g.key}>
-                        <td>{g.key}</td>
-                        <td>{g.rows}</td>
-                        <td>{g.planQty.toLocaleString("en-IN")}</td>
-                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
-                        <td>{g.pendingQty.toLocaleString("en-IN")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {/* OPERATION */}
+            {viewMode ===
+              "operation" && (
+              <SummaryTable
+                title="Operation"
+                data={
+                  operationSummary
+                }
+              />
             )}
 
+            {/* STYLE */}
             {viewMode === "style" && (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Style Name</th>
-                      <th>Orders</th>
-                      <th>Plan Qty</th>
-                      <th>Cutting Qty</th>
-                      <th>Pending Qty</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {styleSummary.map((g) => (
-                      <tr key={g.key}>
-                        <td>{g.key}</td>
-                        <td>{g.rows}</td>
-                        <td>{g.planQty.toLocaleString("en-IN")}</td>
-                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
-                        <td>{g.pendingQty.toLocaleString("en-IN")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <SummaryTable
+                title="Style Name"
+                data={styleSummary}
+              />
             )}
           </div>
         </>
@@ -1121,8 +1801,161 @@ export default function Dashboard() {
     </div>
   );
 }
-'''
 
-path = Path("/mnt/data/page.js")
-path.write_text(code, encoding="utf-8")
-print(path)
+// ---------------------------------------------------------
+// COMPONENTS
+// ---------------------------------------------------------
+
+function StatCard({
+  title,
+  value,
+  accent,
+  pending,
+}) {
+  return (
+    <div
+      style={{
+        background: "#fff",
+        border: "1px solid #e2e8f0",
+        borderRadius: 12,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          color: "#64748b",
+          fontSize: 12,
+          marginBottom: 7,
+        }}
+      >
+        {title}
+      </div>
+
+      <div
+        style={{
+          fontSize: 25,
+          fontWeight: 800,
+          color: pending
+            ? "#c2410c"
+            : accent
+            ? "#15803d"
+            : "#0f172a",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "5px 10px",
+        borderRadius: 7,
+        fontWeight: 800,
+        fontSize: 12,
+        ...getStatusStyle(status),
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
+function Table({ children }) {
+  return (
+    <div
+      style={{
+        width: "100%",
+        overflowX: "auto",
+      }}
+    >
+      <table
+        style={{
+          width: "100%",
+          borderCollapse: "collapse",
+          minWidth: 650,
+          fontSize: 13,
+        }}
+      >
+        {children}
+      </table>
+    </div>
+  );
+}
+
+function SummaryTable({ title, data }) {
+  return (
+    <Table>
+      <thead>
+        <tr>
+          <th>{title}</th>
+          <th>Count</th>
+          <th>Plan Qty</th>
+          <th>Cut Qty</th>
+          <th>Pending Qty</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {data.map((item) => (
+          <tr key={item.key}>
+            <td>
+              <strong>
+                {item.key}
+              </strong>
+            </td>
+
+            <td>{item.count}</td>
+
+            <td>
+              {item.planQty.toLocaleString(
+                "en-IN"
+              )}
+            </td>
+
+            <td>
+              {item.cutQty.toLocaleString(
+                "en-IN"
+              )}
+            </td>
+
+            <td>
+              {item.pendingQty.toLocaleString(
+                "en-IN"
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </Table>
+  );
+}
+
+// ---------------------------------------------------------
+// STYLES
+// ---------------------------------------------------------
+
+const inputStyle = {
+  padding: "11px 12px",
+  border: "1px solid #cbd5e1",
+  borderRadius: 8,
+  background: "#fff",
+  fontSize: 13,
+  outline: "none",
+};
+
+const panelStyle = {
+  background: "#fff",
+  border: "1px solid #e2e8f0",
+  borderRadius: 12,
+  padding: 16,
+};
+
+const headingStyle = {
+  margin: "0 0 12px",
+  fontSize: 17,
+};
