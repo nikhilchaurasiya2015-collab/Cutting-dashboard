@@ -151,10 +151,7 @@ export default function Dashboard() {
     return { rows: rowsArr, total, avgPerDay, dayCount: rowsArr.length };
   }, [filtered]);
 
-  const collectionSummary = useMemo(
-    () => withPercentShare(summarizeBy("COLLECTION")),
-    [filtered]
-  );
+  const collectionSummary = useMemo(() => withPercentShare(summarizeBy("COLLECTION")), [filtered]);
 
   const [styleQuery, setStyleQuery] = useState("");
   const styleNamesList = useMemo(
@@ -210,9 +207,20 @@ export default function Dashboard() {
   return (
     <div className="wrap">
       <div className="topbar">
-        <div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <h1>Cutting room dashboard</h1>
           <p className="sub">Live production tracker, synced from the sheet</p>
+          <select
+            className="quick-search"
+            style={{ width: 320, marginTop: 4 }}
+            value={styleNamesList.includes(styleQuery) ? styleQuery : ""}
+            onChange={(e) => setStyleQuery(e.target.value)}
+          >
+            <option value="">🔍 Style search ({styleNamesList.length} styles)</option>
+            {styleNamesList.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
         </div>
         {fetchedAt && (
           <span className="refresh-tag">
@@ -232,22 +240,8 @@ export default function Dashboard() {
       {status === "ready" && (
         <>
           <div className="quick-panel">
-            <h2>Style search</h2>
-            <div className="style-search-row">
-              <select
-                className="quick-search"
-                style={{ width: "100%" }}
-                value={styleNamesList.includes(styleQuery) ? styleQuery : ""}
-                onChange={(e) => setStyleQuery(e.target.value)}
-              >
-                <option value="">— Select a style ({styleNamesList.length} total) —</option>
-                {styleNamesList.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
             {styleSearchResult && (
-              <div className="cards" style={{ marginTop: 12, marginBottom: 4 }}>
+              <div className="cards" style={{ marginTop: 0, marginBottom: 4 }}>
                 <div className="card">
                   <p className="label">Times cut (orders)</p>
                   <p className="value">{styleSearchResult.count}</p>
@@ -336,7 +330,8 @@ export default function Dashboard() {
               <h2>Orders by type</h2>
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
-                  <Pie data={orderTypePieData} dataKey="value" nameKey="name" outerRadius={90} label={({ name, value }) => `${name}: ${value}`}>
+                  <Pie data={orderTypePieData} dataKey="value" nameKey="name" outerRadius={90}
+                    label={({ name, value }) => `${name}: ${value}`}>
                     {orderTypePieData.map((entry, i) => (
                       <Cell key={entry.name} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
