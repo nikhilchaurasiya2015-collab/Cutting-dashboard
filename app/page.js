@@ -349,7 +349,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            <div className="quick-grid">
+            <div className="quick-stack">
               <div>
                 <h2>Per-day cutting qty (total)</h2>
                 <div className="table-wrap" style={{ maxHeight: 260, overflowY: "auto" }}>
@@ -379,7 +379,7 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              <div>
+              <div style={{ marginTop: 22 }}>
                 <h2>Collection-wise cutting qty</h2>
                 <div className="table-wrap">
                   <table>
