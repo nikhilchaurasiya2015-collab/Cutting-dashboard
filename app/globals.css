@@ -335,3 +335,7 @@ tbody tr:hover {
   color: var(--muted);
   margin: 10px 2px 0;
 }
+
+.quick-stack {
+  margin-top: 18px;
+}
