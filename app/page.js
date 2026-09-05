@@ -154,6 +154,8 @@ export default function Dashboard() {
 
   const monthSummary = useMemo(() => summarizeBy("MONTH"), [filtered]);
   const dateSummary = useMemo(() => summarizeBy("CUTTING DATE"), [filtered]);
+  const operationSummary = useMemo(() => summarizeBy("OPERATION"), [filtered]);
+  const styleSummary = useMemo(() => summarizeBy("STYLE NAME"), [filtered]);
 
   // Slicer-filtered month summary — narrows to only the clicked month pills
   const monthSummaryFiltered = useMemo(() => {
@@ -321,6 +323,18 @@ export default function Dashboard() {
                 onClick={() => setViewMode("date")}
               >
                 Date-wise pending
+              </button>
+              <button
+                className={viewMode === "operation" ? "active" : ""}
+                onClick={() => setViewMode("operation")}
+              >
+                Operation overview
+              </button>
+              <button
+                className={viewMode === "style" ? "active" : ""}
+                onClick={() => setViewMode("style")}
+              >
+                Style-wise
               </button>
             </div>
 
@@ -532,6 +546,74 @@ export default function Dashboard() {
                   </thead>
                   <tbody>
                     {dateSummary.map((g) => (
+                      <tr key={g.key}>
+                        <td>{g.key}</td>
+                        <td>{g.rows}</td>
+                        <td>{g.planQty.toLocaleString("en-IN")}</td>
+                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                        <td
+                          style={{
+                            color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {g.pendingQty.toLocaleString("en-IN")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {viewMode === "operation" && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Operation</th>
+                      <th>Orders</th>
+                      <th>Plan qty</th>
+                      <th>Cutting qty</th>
+                      <th>Pending qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operationSummary.map((g) => (
+                      <tr key={g.key}>
+                        <td>{g.key}</td>
+                        <td>{g.rows}</td>
+                        <td>{g.planQty.toLocaleString("en-IN")}</td>
+                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                        <td
+                          style={{
+                            color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {g.pendingQty.toLocaleString("en-IN")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {viewMode === "style" && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Style name</th>
+                      <th>Orders</th>
+                      <th>Plan qty</th>
+                      <th>Cutting qty</th>
+                      <th>Pending qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {styleSummary.map((g) => (
                       <tr key={g.key}>
                         <td>{g.key}</td>
                         <td>{g.rows}</td>
