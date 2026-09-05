@@ -234,6 +234,12 @@ body {
   color: var(--ink);
 }
 
+.style-search-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .quick-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
