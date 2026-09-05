@@ -178,6 +178,23 @@ export default function Dashboard() {
     );
   }
 
+  // Day-wise cutting qty breakdown, scoped to whichever months are selected in the slicer
+  const dailyBreakdown = useMemo(() => {
+    if (selectedMonths.length === 0) return [];
+    const scoped = filtered.filter((r) => selectedMonths.includes(r["MONTH"]));
+    const map = {};
+    scoped.forEach((r) => {
+      const d = r["CUTTING DATE"] || "—";
+      map[d] = (map[d] || 0) + toNumber(r["CUTTING QTY"]);
+    });
+    const rowsArr = Object.entries(map)
+      .map(([date, cuttingQty]) => ({ date, cuttingQty }))
+      .sort((a, b) => (a.date > b.date ? 1 : -1));
+    const monthTotal = rowsArr.reduce((s, r) => s + r.cuttingQty, 0);
+    const avgPerDay = rowsArr.length ? monthTotal / rowsArr.length : 0;
+    return { rows: rowsArr, monthTotal, avgPerDay, dayCount: rowsArr.length };
+  }, [filtered, selectedMonths]);
+
   const columns = rows.length ? Object.keys(rows[0]) : [];
 
   return (
@@ -383,3 +400,160 @@ export default function Dashboard() {
                     <thead>
                       <tr>
                         {columns.map((c) => (
+                          <th key={c}>{c}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.slice(0, 200).map((row, i) => (
+                        <tr key={i}>
+                          {columns.map((c) => (
+                            <td key={c}>
+                              {c === "ORDER TYPE" && row[c] ? (
+                                <span className="badge">{row[c]}</span>
+                              ) : (
+                                row[c]
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="row-count">
+                  Showing {Math.min(filtered.length, 200)} of {filtered.length}{" "}
+                  rows
+                </p>
+              </>
+            )}
+
+            {viewMode === "month" && (
+              <>
+                {selectedMonths.length > 0 && (
+                  <div className="slicer-summary">
+                    Selected: Plan {slicerTotals.planQty.toLocaleString("en-IN")}
+                    {" · "}Cutting {slicerTotals.cuttingQty.toLocaleString("en-IN")}
+                    {" · "}
+                    <strong>
+                      Pending {slicerTotals.pendingQty.toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+                )}
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Month</th>
+                        <th>Orders</th>
+                        <th>Plan qty</th>
+                        <th>Cutting qty</th>
+                        <th>Pending qty</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthSummaryFiltered.map((g) => (
+                        <tr key={g.key}>
+                          <td>{g.key}</td>
+                          <td>{g.rows}</td>
+                          <td>{g.planQty.toLocaleString("en-IN")}</td>
+                          <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                          <td
+                            style={{
+                              color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {g.pendingQty.toLocaleString("en-IN")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {selectedMonths.length > 0 && (
+                  <div style={{ marginTop: 22 }}>
+                    <h2>Per-day cutting qty ({selectedMonths.join(", ")})</h2>
+                    <div className="cards" style={{ marginBottom: 14 }}>
+                      <div className="card">
+                        <p className="label">Month total cutting qty</p>
+                        <p className="value">
+                          {dailyBreakdown.monthTotal.toLocaleString("en-IN")}
+                        </p>
+                      </div>
+                      <div className="card accent">
+                        <p className="label">Days with cutting</p>
+                        <p className="value">{dailyBreakdown.dayCount}</p>
+                      </div>
+                      <div className="card accent">
+                        <p className="label">Avg cutting qty / day</p>
+                        <p className="value">
+                          {dailyBreakdown.avgPerDay.toLocaleString("en-IN", {
+                            maximumFractionDigits: 0,
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Cutting date</th>
+                            <th>Cutting qty</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dailyBreakdown.rows.map((r) => (
+                            <tr key={r.date}>
+                              <td>{r.date}</td>
+                              <td>{r.cuttingQty.toLocaleString("en-IN")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {viewMode === "date" && (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Cutting date</th>
+                      <th>Orders</th>
+                      <th>Plan qty</th>
+                      <th>Cutting qty</th>
+                      <th>Pending qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dateSummary.map((g) => (
+                      <tr key={g.key}>
+                        <td>{g.key}</td>
+                        <td>{g.rows}</td>
+                        <td>{g.planQty.toLocaleString("en-IN")}</td>
+                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                        <td
+                          style={{
+                            color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {g.pendingQty.toLocaleString("en-IN")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
