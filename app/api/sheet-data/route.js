@@ -1,7 +1,8 @@
 import Papa from "papaparse";
 
-// Revalidate every 5 minutes — matches "3-4 updates a day" cadence
-export const revalidate = 300;
+// No caching — every page load fetches the latest data from the sheet
+export const revalidate = 0;
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const sheetId = process.env.SHEET_ID;
@@ -18,7 +19,7 @@ export async function GET() {
 
   try {
     const res = await fetch(csvUrl, {
-      next: { revalidate: 300 },
+      cache: "no-store",
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -62,7 +63,10 @@ export async function GET() {
       Object.values(row).some((v) => String(v).trim() !== "")
     );
 
-    return Response.json({ rows, fetchedAt: new Date().toISOString() });
+    return Response.json(
+      { rows, fetchedAt: new Date().toISOString() },
+      { headers: { "Cache-Control": "no-store, max-age=0" } }
+    );
   } catch (err) {
     return Response.json(
       { error: "Failed to fetch or parse sheet data", detail: String(err) },
