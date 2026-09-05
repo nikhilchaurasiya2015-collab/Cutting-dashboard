@@ -196,6 +196,10 @@ export default function Dashboard() {
   );
 
   const [styleQuery, setStyleQuery] = useState("");
+  const styleNamesList = useMemo(
+    () => Array.from(new Set(rows.map((r) => r["STYLE NAME"]).filter(Boolean))).sort(),
+    [rows]
+  );
   const styleSearchResult = useMemo(() => {
     if (!styleQuery.trim()) return null;
     const q = styleQuery.toLowerCase();
@@ -288,12 +292,28 @@ export default function Dashboard() {
         <>
           <div className="quick-panel">
             <h2>Style search</h2>
-            <input
-              className="quick-search"
-              placeholder="Search a style name…"
-              value={styleQuery}
-              onChange={(e) => setStyleQuery(e.target.value)}
-            />
+            <div className="style-search-row">
+              <select
+                className="quick-search"
+                value={
+                  styleNamesList.includes(styleQuery) ? styleQuery : ""
+                }
+                onChange={(e) => setStyleQuery(e.target.value)}
+              >
+                <option value="">Select a style…</option>
+                {styleNamesList.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="quick-search"
+                placeholder="…or type to search a style name"
+                value={styleQuery}
+                onChange={(e) => setStyleQuery(e.target.value)}
+              />
+            </div>
             {styleSearchResult && (
               <div className="cards" style={{ marginTop: 12, marginBottom: 4 }}>
                 <div className="card">
@@ -331,32 +351,6 @@ export default function Dashboard() {
 
             <div className="quick-grid">
               <div>
-                <h2>Collection-wise cutting qty</h2>
-                <div className="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Collection</th>
-                        <th>Plan qty</th>
-                        <th>Cutting qty</th>
-                        <th>% share</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {collectionSummary.map((g) => (
-                        <tr key={g.key}>
-                          <td>{g.key}</td>
-                          <td>{g.planQty.toLocaleString("en-IN")}</td>
-                          <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
-                          <td>{g.pctShare.toFixed(1)}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div>
                 <h2>Per-day cutting qty (total)</h2>
                 <div className="table-wrap" style={{ maxHeight: 260, overflowY: "auto" }}>
                   <table>
@@ -383,6 +377,32 @@ export default function Dashboard() {
                     maximumFractionDigits: 0,
                   })}
                 </p>
+              </div>
+
+              <div>
+                <h2>Collection-wise cutting qty</h2>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Collection</th>
+                        <th>Plan qty</th>
+                        <th>Cutting qty</th>
+                        <th>% share</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {collectionSummary.map((g) => (
+                        <tr key={g.key}>
+                          <td>{g.key}</td>
+                          <td>{g.planQty.toLocaleString("en-IN")}</td>
+                          <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                          <td>{g.pctShare.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
