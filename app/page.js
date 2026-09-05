@@ -15,7 +15,7 @@ import {
   Cell,
 } from "recharts";
 
-const PIE_COLORS = ["#253a5e", "#b5502f", "#d9a441", "#6b6a63", "#8aa1c1"];
+const PIE_COLORS = ["#1e3a8a", "#2563eb", "#60a5fa", "#94a3b8", "#0ea5e9"];
 
 function toNumber(val) {
   if (val === undefined || val === null) return 0;
@@ -34,6 +34,7 @@ export default function Dashboard() {
   const [location, setLocation] = useState("all");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState("log"); // log | month | date
+  const [selectedMonths, setSelectedMonths] = useState([]); // slicer selection, empty = all
 
   useEffect(() => {
     fetch("/api/sheet-data")
@@ -154,6 +155,29 @@ export default function Dashboard() {
   const monthSummary = useMemo(() => summarizeBy("MONTH"), [filtered]);
   const dateSummary = useMemo(() => summarizeBy("CUTTING DATE"), [filtered]);
 
+  // Slicer-filtered month summary — narrows to only the clicked month pills
+  const monthSummaryFiltered = useMemo(() => {
+    if (selectedMonths.length === 0) return monthSummary;
+    return monthSummary.filter((g) => selectedMonths.includes(g.key));
+  }, [monthSummary, selectedMonths]);
+
+  const slicerTotals = useMemo(() => {
+    return monthSummaryFiltered.reduce(
+      (acc, g) => ({
+        planQty: acc.planQty + g.planQty,
+        cuttingQty: acc.cuttingQty + g.cuttingQty,
+        pendingQty: acc.pendingQty + g.pendingQty,
+      }),
+      { planQty: 0, cuttingQty: 0, pendingQty: 0 }
+    );
+  }, [monthSummaryFiltered]);
+
+  function toggleMonthSlicer(m) {
+    setSelectedMonths((prev) =>
+      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
+    );
+  }
+
   const columns = rows.length ? Object.keys(rows[0]) : [];
 
   return (
@@ -214,13 +238,13 @@ export default function Dashboard() {
               <h2>Plan qty vs cutting qty by month</h2>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={monthChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2ddd0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="planQty" name="Plan qty" fill="#253a5e" />
-                  <Bar dataKey="cuttingQty" name="Cutting qty" fill="#d9a441" />
+                  <Bar dataKey="planQty" name="Plan qty" fill="#1e3a8a" />
+                  <Bar dataKey="cuttingQty" name="Cutting qty" fill="#60a5fa" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -251,11 +275,11 @@ export default function Dashboard() {
               <h2>Cutting qty by location</h2>
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={locationBarData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2ddd0" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="location" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="cuttingQty" name="Cutting qty" fill="#253a5e" />
+                  <Bar dataKey="cuttingQty" name="Cutting qty" fill="#2563eb" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -283,15 +307,44 @@ export default function Dashboard() {
               </button>
             </div>
 
+            {viewMode === "month" && (
+              <div className="slicer">
+                {monthSummary.map((g) => {
+                  const active =
+                    selectedMonths.length === 0 ||
+                    selectedMonths.includes(g.key);
+                  return (
+                    <button
+                      key={g.key}
+                      className={`slicer-pill ${active ? "on" : ""}`}
+                      onClick={() => toggleMonthSlicer(g.key)}
+                    >
+                      {g.key}
+                    </button>
+                  );
+                })}
+                {selectedMonths.length > 0 && (
+                  <button
+                    className="slicer-clear"
+                    onClick={() => setSelectedMonths([])}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="filters">
-              <select value={month} onChange={(e) => setMonth(e.target.value)}>
-                <option value="all">All months</option>
-                {months.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              {viewMode !== "month" && (
+                <select value={month} onChange={(e) => setMonth(e.target.value)}>
+                  <option value="all">All months</option>
+                  {months.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              )}
               <select
                 value={orderType}
                 onChange={(e) => setOrderType(e.target.value)}
@@ -359,37 +412,49 @@ export default function Dashboard() {
             )}
 
             {viewMode === "month" && (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Month</th>
-                      <th>Orders</th>
-                      <th>Plan qty</th>
-                      <th>Cutting qty</th>
-                      <th>Pending qty</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthSummary.map((g) => (
-                      <tr key={g.key}>
-                        <td>{g.key}</td>
-                        <td>{g.rows}</td>
-                        <td>{g.planQty.toLocaleString("en-IN")}</td>
-                        <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
-                        <td
-                          style={{
-                            color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
-                            fontWeight: 700,
-                          }}
-                        >
-                          {g.pendingQty.toLocaleString("en-IN")}
-                        </td>
+              <>
+                {selectedMonths.length > 0 && (
+                  <div className="slicer-summary">
+                    Selected: Plan {slicerTotals.planQty.toLocaleString("en-IN")}
+                    {" · "}Cutting {slicerTotals.cuttingQty.toLocaleString("en-IN")}
+                    {" · "}
+                    <strong>
+                      Pending {slicerTotals.pendingQty.toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+                )}
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Month</th>
+                        <th>Orders</th>
+                        <th>Plan qty</th>
+                        <th>Cutting qty</th>
+                        <th>Pending qty</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {monthSummaryFiltered.map((g) => (
+                        <tr key={g.key}>
+                          <td>{g.key}</td>
+                          <td>{g.rows}</td>
+                          <td>{g.planQty.toLocaleString("en-IN")}</td>
+                          <td>{g.cuttingQty.toLocaleString("en-IN")}</td>
+                          <td
+                            style={{
+                              color: g.pendingQty > 0 ? "#a32d2d" : "inherit",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {g.pendingQty.toLocaleString("en-IN")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
 
             {viewMode === "date" && (
